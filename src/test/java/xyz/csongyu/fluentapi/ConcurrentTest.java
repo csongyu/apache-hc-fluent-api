@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.http.client.fluent.Request;
+import org.apache.http.client.fluent.Response;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -58,14 +59,18 @@ public class ConcurrentTest {
         final ExecutorService executorService = Executors.newFixedThreadPool(10);
         CompletableFuture.allOf(indexes.stream().map(index -> CompletableFuture.supplyAsync(() -> {
             System.out.println(Thread.currentThread().getName() + " | " + index);
-            final Request request = Request.Get("http://127.0.0.1:8088/index/" + index).connectTimeout(1_000)
-                .socketTimeout(5_000).addHeader("Accept", "application/json");
+            Response response = null;
             try {
-                request.execute().saveContent(directory.resolve(index + ".json").toFile());
+                response = Request.Get("http://127.0.0.1:8088/index/" + index).connectTimeout(1_000)
+                    .socketTimeout(5_000).addHeader("Accept", "application/json").execute();
+                response.saveContent(directory.resolve(index + ".json").toFile());
             } catch (final IOException e) {
-                // important
-                request.abort();
                 return false;
+            } finally {
+                if (response != null) {
+                    // important
+                    response.discardContent();
+                }
             }
             return Files.exists(Paths.get(index + ".json"));
         }, executorService)).toArray(CompletableFuture[]::new)).orTimeout(30, TimeUnit.SECONDS).join();
